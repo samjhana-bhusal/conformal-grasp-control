@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+MUJOCO_LOG.TXT
+*.egg-info/
+.eggs/
+dist/
+build/
+.env
+.venv/
+*.pt
+*.pth
+wandb/
+outputs/
+data/checkpoints/
