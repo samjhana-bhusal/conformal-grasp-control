@@ -1,5 +1,5 @@
 """
-UR5 + bin sorting scene builder for MuJoCo.
+UR5 + recycling sorting scene builder for MuJoCo.
 
 Design decision log:
   - UR5 built from geometric primitives (cylinders) rather than loading a URDF.
@@ -8,8 +8,11 @@ Design decision log:
   - Robotiq 2F-85 gripper simplified to parallel-jaw with two finger pads.
     Rationale: full Robotiq model has 11 links and complex linkage. For a
     grasping study, two rigid fingers with contact pads are sufficient.
-  - Three destination bins arranged in a semicircle in front of the robot.
-    Rationale: reachable from a fixed base, no need for base rotation.
+  - Three destination bins: recyclable (blue), compost (green), landfill (black).
+    Rationale: maps to real-world MRF (Materials Recovery Facility) streams.
+  - Objects have an ambiguity field (0-1) modeling visual confusion between
+    categories. Landfill items like wax-coated cups and soiled cardboard have
+    high ambiguity because they visually resemble recyclables.
 """
 
 from __future__ import annotations
@@ -60,9 +63,9 @@ def build_scene_xml(objects: list[dict], config: dict) -> str:
              rgb2="0.75 0.75 0.78" width="512" height="512"/>
     <material name="grid_mat" texture="grid" texrepeat="8 8" reflectance="0.1"/>
     <material name="table_mat" rgba="0.35 0.25 0.2 1"/>
-    <material name="bin_a" rgba="0.85 0.25 0.25 0.7"/>
-    <material name="bin_b" rgba="0.25 0.55 0.85 0.7"/>
-    <material name="bin_c" rgba="0.25 0.75 0.35 0.7"/>
+    <material name="bin_a" rgba="0.2 0.5 0.85 0.7"/>
+    <material name="bin_b" rgba="0.2 0.7 0.3 0.7"/>
+    <material name="bin_c" rgba="0.25 0.25 0.25 0.7"/>
     <material name="source_bin" rgba="0.5 0.5 0.5 0.6"/>
     <material name="robot_mat" rgba="0.3 0.3 0.35 1" specular="0.5" shininess="0.5"/>
     <material name="finger_mat" rgba="0.15 0.15 0.15 1"/>
@@ -97,7 +100,7 @@ def build_scene_xml(objects: list[dict], config: dict) -> str:
       <geom name="src_wall_r" type="box" size="0.005 0.10 0.04" pos="0.12 0 0.04" material="source_bin"/>
     </body>
 
-    <!-- Destination bins (A=red, B=blue, C=green) -->
+    <!-- Destination bins (A=recyclable/blue, B=compost/green, C=landfill/black) -->
     <body name="bin_a" pos="-0.35 0.15 {table_h}">
       <geom name="bina_base" type="box" size="{bin_w/2} {bin_d/2} 0.005" pos="0 0 0.005" material="bin_a"/>
       <geom name="bina_f" type="box" size="{bin_w/2} 0.004 0.035" pos="0 {bin_d/2} 0.035" material="bin_a"/>
@@ -237,33 +240,41 @@ def _objects_xml(objects: list[dict], table_h: float) -> str:
     return "\n".join(lines)
 
 
-# ── Object categories for bin sorting ────────────────────────────
+# ── Waste categories for recycling sorting ───────────────────────
+# Each item has an ambiguity score (0-1): how easily it is confused with
+# another category.  High-ambiguity items drive the need for the safety gate.
 OBJECT_CATEGORIES = {
-    "fruit": {
+    "recyclable": {
         "bin": "bin_a",
         "items": [
-            {"name": "apple",      "shape": "sphere",   "size": 0.025, "color": "0.8 0.15 0.1 1"},
-            {"name": "orange",     "shape": "sphere",   "size": 0.028, "color": "0.95 0.55 0.1 1"},
-            {"name": "lemon",      "shape": "sphere",   "size": 0.022, "color": "0.95 0.9 0.2 1"},
-            {"name": "cherry",     "shape": "sphere",   "size": 0.012, "color": "0.7 0.05 0.1 1"},
+            {"name": "plastic_bottle",  "shape": "cylinder", "size": 0.020, "color": "0.55 0.78 0.95 1",  "ambiguity": 0.05},
+            {"name": "aluminum_can",    "shape": "cylinder", "size": 0.018, "color": "0.75 0.75 0.78 1",  "ambiguity": 0.08},
+            {"name": "glass_jar",       "shape": "cylinder", "size": 0.022, "color": "0.7 0.85 0.72 0.8", "ambiguity": 0.12},
+            {"name": "cardboard_box",   "shape": "box",      "size": 0.020, "color": "0.72 0.53 0.34 1",  "ambiguity": 0.10},
+            {"name": "tin_can",         "shape": "cylinder", "size": 0.016, "color": "0.62 0.62 0.62 1",  "ambiguity": 0.15},
+            {"name": "newspaper",       "shape": "box",      "size": 0.015, "color": "0.85 0.85 0.82 1",  "ambiguity": 0.12},
         ],
     },
-    "hardware": {
+    "compost": {
         "bin": "bin_b",
         "items": [
-            {"name": "bolt",       "shape": "cylinder", "size": 0.008, "color": "0.6 0.6 0.6 1"},
-            {"name": "nut",        "shape": "cylinder", "size": 0.006, "color": "0.65 0.65 0.6 1"},
-            {"name": "washer",     "shape": "cylinder", "size": 0.010, "color": "0.55 0.55 0.55 1"},
-            {"name": "screw",      "shape": "cylinder", "size": 0.005, "color": "0.5 0.5 0.5 1"},
+            {"name": "banana_peel",     "shape": "sphere",   "size": 0.022, "color": "0.78 0.68 0.20 1",  "ambiguity": 0.08},
+            {"name": "apple_core",      "shape": "sphere",   "size": 0.016, "color": "0.55 0.35 0.22 1",  "ambiguity": 0.12},
+            {"name": "food_scraps",     "shape": "box",      "size": 0.014, "color": "0.45 0.35 0.25 1",  "ambiguity": 0.18},
+            {"name": "tea_bag",         "shape": "box",      "size": 0.010, "color": "0.60 0.48 0.30 1",  "ambiguity": 0.10},
+            {"name": "egg_shell",       "shape": "sphere",   "size": 0.012, "color": "0.92 0.90 0.85 1",  "ambiguity": 0.25},
+            {"name": "coffee_grounds",  "shape": "sphere",   "size": 0.013, "color": "0.30 0.22 0.15 1",  "ambiguity": 0.10},
         ],
     },
-    "toy": {
+    "landfill": {
         "bin": "bin_c",
         "items": [
-            {"name": "block_red",  "shape": "box",      "size": 0.018, "color": "0.9 0.2 0.2 1"},
-            {"name": "block_blue", "shape": "box",      "size": 0.018, "color": "0.2 0.3 0.9 1"},
-            {"name": "ball_green", "shape": "sphere",   "size": 0.015, "color": "0.2 0.8 0.3 1"},
-            {"name": "marble",     "shape": "sphere",   "size": 0.010, "color": "0.4 0.7 0.9 1"},
+            {"name": "styrofoam_cup",   "shape": "cylinder", "size": 0.022, "color": "0.95 0.95 0.95 1",  "ambiguity": 0.45},
+            {"name": "chip_bag",        "shape": "box",      "size": 0.018, "color": "0.85 0.35 0.15 1",  "ambiguity": 0.20},
+            {"name": "plastic_wrap",    "shape": "box",      "size": 0.016, "color": "0.90 0.90 0.90 0.6","ambiguity": 0.30},
+            {"name": "broken_ceramic",  "shape": "sphere",   "size": 0.016, "color": "0.80 0.76 0.70 1",  "ambiguity": 0.40},
+            {"name": "soiled_pizza_box","shape": "box",      "size": 0.024, "color": "0.62 0.48 0.30 1",  "ambiguity": 0.55},
+            {"name": "wax_paper_cup",   "shape": "cylinder", "size": 0.018, "color": "0.90 0.88 0.82 1",  "ambiguity": 0.60},
         ],
     },
 }

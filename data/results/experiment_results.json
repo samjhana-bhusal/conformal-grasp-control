@@ -1,192 +1,238 @@
 {
   "calibration": {
-    "threshold": 0.0,
+    "threshold": 0.6666666666666667,
     "n_trials": 200,
-    "raw_success_rate": 1.0
+    "raw_success_rate": 0.8,
+    "raw_contamination_rate": 0.2
   },
   "in_distribution": {
     "42": {
       "no_gate": {
-        "sr": 1.0,
+        "sr": 0.84,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.7817009846486592,
+          0.8879125023541982
         ],
+        "contamination_rate": 0.16,
         "coverage": 1.0,
         "abstention": 0.0,
         "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "n_success": 168,
+        "n_contamination": 32,
+        "n_total": 200,
+        "diversion_rate": 0.9104477611940298
       },
       "raw_0.5": {
-        "sr": 1.0,
+        "sr": 0.9540229885057471,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.9114193137556573,
+          0.9799442350127989
         ],
-        "coverage": 1.0,
-        "abstention": 0.0,
-        "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "contamination_rate": 0.04597701149425287,
+        "coverage": 0.87,
+        "abstention": 0.13,
+        "n_attempted": 174,
+        "n_success": 166,
+        "n_contamination": 8,
+        "n_total": 200,
+        "diversion_rate": 0.8955223880597015
       },
       "conformal": {
-        "sr": 1.0,
+        "sr": 0.9877300613496932,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.9563814616565625,
+          0.9985105840199532
         ],
-        "coverage": 1.0,
-        "abstention": 0.0,
-        "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "contamination_rate": 0.012269938650306749,
+        "coverage": 0.815,
+        "abstention": 0.18500000000000005,
+        "n_attempted": 163,
+        "n_success": 161,
+        "n_contamination": 2,
+        "n_total": 200,
+        "diversion_rate": 0.8805970149253731
       }
     },
     "123": {
       "no_gate": {
-        "sr": 1.0,
+        "sr": 0.83,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.7706283996061137,
+          0.8793043767637826
         ],
+        "contamination_rate": 0.17,
         "coverage": 1.0,
         "abstention": 0.0,
         "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "n_success": 166,
+        "n_contamination": 34,
+        "n_total": 200,
+        "diversion_rate": 0.8872180451127819
       },
       "raw_0.5": {
-        "sr": 1.0,
+        "sr": 0.9273743016759777,
         "sr_ci": [
-          0.9815417744632783,
-          1.0
+          0.8790097422014418,
+          0.9607651502134449
         ],
-        "coverage": 0.99,
-        "abstention": 0.010000000000000009,
-        "n_attempted": 198,
-        "n_success": 198,
-        "n_total": 200
+        "contamination_rate": 0.07262569832402235,
+        "coverage": 0.895,
+        "abstention": 0.10499999999999998,
+        "n_attempted": 179,
+        "n_success": 166,
+        "n_contamination": 13,
+        "n_total": 200,
+        "diversion_rate": 0.8872180451127819
       },
       "conformal": {
-        "sr": 1.0,
+        "sr": 0.9754601226993865,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.9383624511957317,
+          0.993274131214627
         ],
-        "coverage": 1.0,
-        "abstention": 0.0,
-        "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "contamination_rate": 0.024539877300613498,
+        "coverage": 0.815,
+        "abstention": 0.18500000000000005,
+        "n_attempted": 163,
+        "n_success": 159,
+        "n_contamination": 4,
+        "n_total": 200,
+        "diversion_rate": 0.8646616541353384
       }
     },
     "456": {
       "no_gate": {
-        "sr": 1.0,
+        "sr": 0.835,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.7761565322881794,
+          0.883616880041946
         ],
+        "contamination_rate": 0.165,
         "coverage": 1.0,
         "abstention": 0.0,
         "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "n_success": 167,
+        "n_contamination": 33,
+        "n_total": 200,
+        "diversion_rate": 0.9117647058823529
       },
       "raw_0.5": {
-        "sr": 1.0,
+        "sr": 0.9488636363636364,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.9051491544248341,
+          0.9763536671638102
         ],
-        "coverage": 1.0,
-        "abstention": 0.0,
-        "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "contamination_rate": 0.05113636363636364,
+        "coverage": 0.88,
+        "abstention": 0.12,
+        "n_attempted": 176,
+        "n_success": 167,
+        "n_contamination": 9,
+        "n_total": 200,
+        "diversion_rate": 0.9117647058823529
       },
       "conformal": {
-        "sr": 1.0,
+        "sr": 0.9693251533742331,
         "sr_ci": [
-          0.9817246596448638,
-          1.0
+          0.9298696471838761,
+          0.9899664149455645
         ],
-        "coverage": 1.0,
-        "abstention": 0.0,
-        "n_attempted": 200,
-        "n_success": 200,
-        "n_total": 200
+        "contamination_rate": 0.03067484662576687,
+        "coverage": 0.815,
+        "abstention": 0.18500000000000005,
+        "n_attempted": 163,
+        "n_success": 158,
+        "n_contamination": 5,
+        "n_total": 200,
+        "diversion_rate": 0.875
       }
     },
     "agg_no_gate": {
-      "mean_sr": 1.0,
-      "std_sr": 0.0,
-      "mean_cov": 1.0
+      "mean_sr": 0.835,
+      "std_sr": 0.004082482904638634,
+      "mean_cov": 1.0,
+      "mean_contamination": 0.165,
+      "mean_diversion": 0.9031435040630549
     },
     "agg_raw_0.5": {
-      "mean_sr": 1.0,
-      "std_sr": 0.0,
-      "mean_cov": 0.9966666666666667
+      "mean_sr": 0.9434203088484536,
+      "std_sr": 0.011540089204332858,
+      "mean_cov": 0.8816666666666667,
+      "mean_contamination": 0.05657969115154629,
+      "mean_diversion": 0.8981683796849455
     },
     "agg_conformal": {
-      "mean_sr": 1.0,
-      "std_sr": 0.0,
-      "mean_cov": 1.0
+      "mean_sr": 0.9775051124744376,
+      "std_sr": 0.007651651097697217,
+      "mean_cov": 0.815,
+      "mean_contamination": 0.022494887525562373,
+      "mean_diversion": 0.8734195563535705
     }
   },
   "fault_injection": {
     "no_gate": {
-      "sr": 0.705,
+      "sr": 0.615,
       "sr_ci": [
-        0.6365768666820897,
-        0.7672312157768753
+        0.5437613072168548,
+        0.6827754746371324
       ],
+      "contamination_rate": 0.385,
       "coverage": 1.0,
       "abstention": 0.0,
       "n_attempted": 200,
-      "n_success": 141,
-      "n_total": 200
+      "n_success": 123,
+      "n_contamination": 77,
+      "n_total": 200,
+      "diversion_rate": 0.7122302158273381
     },
     "conformal": {
-      "sr": 0.705,
+      "sr": 0.9212598425196851,
       "sr_ci": [
-        0.6365768666820897,
-        0.7672312157768753
+        0.8599603070921814,
+        0.9615954049370246
       ],
-      "coverage": 1.0,
-      "abstention": 0.0,
-      "n_attempted": 200,
-      "n_success": 141,
-      "n_total": 200
+      "contamination_rate": 0.07874015748031496,
+      "coverage": 0.635,
+      "abstention": 0.365,
+      "n_attempted": 127,
+      "n_success": 117,
+      "n_contamination": 10,
+      "n_total": 200,
+      "diversion_rate": 0.6834532374100719
     }
   },
   "recalibration": {
-    "original_threshold": 0.0,
-    "new_threshold": 0.43434343434343436,
+    "original_threshold": 0.6666666666666667,
+    "new_threshold": 0.7575757575757577,
     "before": {
-      "sr": 0.685,
+      "sr": 0.943089430894309,
       "sr_ci": [
-        0.6157223022745728,
-        0.7486946743454821
+        0.88625582684577,
+        0.9768155564861852
       ],
-      "coverage": 1.0,
-      "abstention": 0.0,
-      "n_attempted": 200,
-      "n_success": 137,
-      "n_total": 200
+      "contamination_rate": 0.056910569105691054,
+      "coverage": 0.615,
+      "abstention": 0.385,
+      "n_attempted": 123,
+      "n_success": 116,
+      "n_contamination": 7,
+      "n_total": 200,
+      "diversion_rate": 0.6554621848739496
     },
     "after": {
-      "sr": 0.9319727891156463,
+      "sr": 0.9514563106796117,
       "sr_ci": [
-        0.8784546779503075,
-        0.96689857796315
+        0.8903438522405104,
+        0.9840524059481867
       ],
-      "coverage": 0.735,
-      "abstention": 0.265,
-      "n_attempted": 147,
-      "n_success": 137,
-      "n_total": 200
+      "contamination_rate": 0.04854368932038835,
+      "coverage": 0.515,
+      "abstention": 0.485,
+      "n_attempted": 103,
+      "n_success": 98,
+      "n_contamination": 5,
+      "n_total": 200,
+      "diversion_rate": 0.5546218487394958
     }
   }
 }

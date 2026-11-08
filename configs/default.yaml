@@ -1,4 +1,6 @@
 # ── Simulation ────────────────────────────────────────────────────
+# Recycling sorting: UR5 picks waste items, classifies, and sorts
+# into recyclable (blue), compost (green), or landfill (black) bins.
 simulation:
   table_height: 0.4
   n_objects: 6
@@ -10,7 +12,7 @@ simulation:
 # ── RL Training ──────────────────────────────────────────────────
 # Design decision: PPO with conservative hyperparameters.
 # Rationale: manipulation tasks have high-variance gradients due to
-# contact dynamics. Lower learning rate + larger batch = stability.
+# contact dynamics. Asymmetric reward: contamination (-20) >> missed value (-2).
 training:
   algorithm: ppo
   total_timesteps: 200000

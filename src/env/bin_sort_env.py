@@ -1,10 +1,10 @@
 """
-Bin sorting environment for RL training.
+Recycling sorting environment for RL training.
 
 The agent controls a UR5 robot arm to:
-  1. Pick objects from a cluttered source bin
+  1. Pick waste items from a mixed-waste source bin
   2. Classify them (via VLM confidence score)
-  3. Place them in the correct destination bin
+  3. Place them in the correct stream: recyclable, compost, or landfill
 
 Observation space:
   - 6 joint angles (UR5)
@@ -12,8 +12,8 @@ Observation space:
   - 3D grip site position
   - 3D target object position
   - object size
-  - VLM confidence score (simulated)
-  - category encoding (one-hot, 3 classes)
+  - VLM confidence score (simulated, ambiguity-aware)
+  - category encoding (one-hot, 3 classes: recyclable/compost/landfill)
   Total: 6 + 2 + 3 + 3 + 1 + 1 + 3 = 19
 
 Action space:
@@ -22,14 +22,16 @@ Action space:
   Total: 7
 
 Reward structure:
-  Design decision: dense reward with shaping.
-  Rationale: sparse rewards (only on task completion) are hard to learn from
-  in manipulation. Dense shaping gives the policy gradient signal at every step.
+  Design decision: asymmetric dense reward reflecting real-world contamination costs.
+  Rationale: in recycling, contamination (wrong item in recycling/compost stream)
+  is far more costly than a missed recyclable routed to landfill. One contaminated
+  item can render an entire batch non-recyclable.
 
-  +10.0  successful pick + correct bin placement
+  +10.0  correct sort to any bin
   +3.0   successful pick (object lifted)
+  -20.0  contamination (wrong item in recyclable or compost stream)
+  -2.0   missed value (recyclable/compostable sent to landfill)
   -5.0   dropped object
-  -1.0   wrong bin
   -0.01  per-step cost (encourages efficiency)
   +0.5   distance reduction toward target (shaping)
 """
@@ -199,29 +201,28 @@ class BinSortEnv:
         return obs
 
     def _simulate_vlm_score(self, obj: dict) -> float:
-        """Simulate VLM classification confidence.
+        """Simulate VLM classification confidence with ambiguity modeling.
 
-        Design decision: use Beta distributions to simulate VLM confidence.
-        High confidence (Beta(15,2)) for easy objects, lower (Beta(4,4)) for
-        ambiguous ones. This matches real VLM calibration behavior.
+        Design decision: confidence depends on item ambiguity, not just size.
+        A wax-coated paper cup (ambiguity=0.6) gets a lower, noisier score than
+        a clean plastic bottle (ambiguity=0.05).  This drives the need for the
+        conformal gate: high-ambiguity landfill items produce moderate VLM scores
+        that a fixed threshold cannot reliably separate.
         """
         rng = np.random.RandomState(hash(obj["name"]) % 2**31)
-        size = obj["size"]
-        if size > 0.020:  # larger objects → easier to classify
-            return float(np.clip(rng.beta(15, 2), 0.01, 0.99))
-        elif size > 0.010:
-            return float(np.clip(rng.beta(8, 3), 0.01, 0.99))
-        else:  # tiny objects → harder
-            return float(np.clip(rng.beta(4, 4), 0.01, 0.99))
+        ambiguity = obj.get("ambiguity", 0.1)
+        alpha_param = max(2.0, 15.0 * (1.0 - ambiguity))
+        beta_param = max(1.5, 2.0 + 10.0 * ambiguity)
+        return float(np.clip(rng.beta(alpha_param, beta_param), 0.01, 0.99))
 
     def _category_onehot(self, category: str) -> np.ndarray:
-        cats = {"fruit": 0, "hardware": 1, "toy": 2}
+        cats = {"recyclable": 0, "compost": 1, "landfill": 2}
         vec = np.zeros(3)
         vec[cats.get(category, 0)] = 1.0
         return vec
 
     def _compute_reward(self) -> float:
-        """Dense reward with shaping toward current subtask."""
+        """Dense reward with asymmetric contamination penalties."""
         if self._target_idx >= len(self.objects):
             return 0.0
 
@@ -256,15 +257,26 @@ class BinSortEnv:
                 reward += 0.5 * (self._prev_dist - dist)
             self._prev_dist = dist
 
-            if dist < 0.06:
-                self._phase = "approach"
-                self._detach()
-                self._episode_correct += 1
-                reward += 10.0
-                self._target_idx += 1
-                self._prev_dist = None
+            # Check proximity to ANY bin (correct or wrong)
+            all_bins = {"bin_a": "recyclable", "bin_b": "compost", "bin_c": "landfill"}
+            for bin_name, bin_stream in all_bins.items():
+                bp = get_bin_position(bin_name)
+                d = np.linalg.norm(grip_pos - bp)
+                if d < 0.06:
+                    self._detach()
+                    if bin_name == target["target_bin"]:
+                        self._episode_correct += 1
+                        reward += 10.0
+                    elif bin_stream in ("recyclable", "compost"):
+                        reward -= 20.0  # contamination
+                    else:
+                        reward -= 2.0  # missed value (sent to landfill)
+                    self._phase = "approach"
+                    self._target_idx += 1
+                    self._prev_dist = None
+                    break
 
-            if self._attached_obj is None:
+            if self._attached_obj is None and self._phase == "transport":
                 reward -= 5.0
                 self._phase = "approach"
                 self._prev_dist = None

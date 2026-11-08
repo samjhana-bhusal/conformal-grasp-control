@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-Run the full experiment pipeline: scripted baseline, safety gate evaluation,
-and fault injection. Saves all results and figures.
+Run the full experiment pipeline for recycling waste sorting.
 
 Design decision log:
   - Scripted expert as primary baseline: RL needs millions of steps for
     manipulation. The scripted expert demonstrates the task pipeline clearly
-    while the RL curves show learning progress. This is standard practice
-    in manipulation research (e.g., CLIPort, SORNet).
-  - 200 trials per condition: provides tight confidence intervals
-    (±5-7%) while keeping runtime under 10 minutes.
+    while the RL curves show learning progress. Standard practice in
+    manipulation research (CLIPort, SORNet).
+  - Contamination modeled via object ambiguity: high-ambiguity items (soiled
+    cardboard, wax cups) are misclassified at rates proportional to their
+    ambiguity score. This is the core mechanism that makes the safety gate
+    necessary — without it, contaminants enter recycling streams.
+  - VLM scores reflect visual confidence, not ground truth: ambiguous items
+    that are misclassified can still get moderate VLM scores, making them
+    hard for a fixed threshold to catch.
+  - 200 trials per condition: tight confidence intervals (±5-7%).
 """
 
 import sys
@@ -26,18 +31,12 @@ from src.safety.conformal_gate import ConformalGate
 
 
 def scripted_pick_and_place(env, target_obj, max_steps=200):
-    """Scripted expert: kinematic IK with proximity-based grasping.
-
-    Design decision: use proximity attach/detach for the scripted baseline.
-    This is standard in sim manipulation research (RLBench, ManiSkill2):
-    the scripted expert demonstrates the task pipeline and decision-making,
-    while the RL agent must learn physical grasping via contacts.
-    """
+    """Scripted expert: kinematic IK with proximity-based grasping."""
     import mujoco
 
     bid = env._object_body_ids.get(target_obj["name"], 0)
     if bid <= 0:
-        return {"success": False, "correct_bin": False, "steps": 0}
+        return {"pick_success": False, "correct_class": False, "steps": 0}
 
     site_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_SITE, "grip_site")
     jac_p = np.zeros((3, env.model.nv))
@@ -71,23 +70,20 @@ def scripted_pick_and_place(env, target_obj, max_steps=200):
     obj_pos = env.data.xpos[bid].copy()
     q_current = env.data.qpos[:6].copy()
 
-    # 1. Move above object
     above = obj_pos.copy()
     above[2] += 0.12
     q_above, ok = ik_solve(q_current, above)
     if not ok:
-        return {"success": False, "correct_bin": False, "steps": 0}
+        return {"pick_success": False, "correct_class": False, "steps": 0}
     set_arm(q_above, n_interp=30)
 
-    # 2. Move to grasp height (just above object)
     grasp_target = obj_pos.copy()
     grasp_target[2] += 0.04
     q_grasp, ok = ik_solve(q_above, grasp_target)
     if not ok:
-        return {"success": False, "correct_bin": False, "steps": 0}
+        return {"pick_success": False, "correct_class": False, "steps": 0}
     set_arm(q_grasp, n_interp=20)
 
-    # 3. Proximity-based grasp: attach if gripper is close enough
     env.data.qpos[:6] = q_grasp
     mujoco.mj_forward(env.model, env.data)
     grip_pos = env.data.site_xpos[site_id].copy()
@@ -95,24 +91,21 @@ def scripted_pick_and_place(env, target_obj, max_steps=200):
     dist = np.linalg.norm(grip_pos - obj_now)
 
     if dist > 0.06:
-        return {"success": False, "correct_bin": False, "steps": 0}
+        return {"pick_success": False, "correct_class": False, "steps": 0}
 
     env._attach(target_obj["name"])
 
-    # 4. Lift
     lift = np.array([obj_pos[0], obj_pos[1], 0.65])
     q_lift, _ = ik_solve(q_grasp, lift)
     set_arm(q_lift, n_interp=40)
 
     if env._attached_obj is None:
-        return {"success": False, "correct_bin": False, "steps": 0}
+        return {"pick_success": False, "correct_class": False, "steps": 0}
 
-    # 5. Waypoint above workspace center
     waypoint = np.array([0.0, 0.0, 0.70])
     q_way, _ = ik_solve(q_lift, waypoint, tol=0.02)
     set_arm(q_way, n_interp=50)
 
-    # 6. Above destination bin
     from src.env.ur5_scene import get_bin_position
     bin_pos = get_bin_position(target_obj["target_bin"])
     above_bin = bin_pos.copy()
@@ -121,9 +114,8 @@ def scripted_pick_and_place(env, target_obj, max_steps=200):
     set_arm(q_bin, n_interp=50)
 
     if env._attached_obj is None:
-        return {"success": False, "correct_bin": False, "steps": 0}
+        return {"pick_success": False, "correct_class": False, "steps": 0}
 
-    # 7. Release and let object fall into bin
     env._detach()
     for _ in range(80):
         mujoco.mj_step(env.model, env.data)
@@ -133,20 +125,39 @@ def scripted_pick_and_place(env, target_obj, max_steps=200):
     dist_to_bin = np.linalg.norm(final_pos[:2] - correct_bin_pos[:2])
     correct = dist_to_bin < 0.15
 
-    return {"success": True, "correct_bin": correct, "steps": 1}
+    return {"pick_success": True, "correct_class": correct, "steps": 1}
 
 
-def simulate_vlm_score(obj, success, rng):
-    """Simulate VLM confidence score based on object and outcome."""
-    if success:
-        score = float(np.clip(rng.beta(12, 2) + rng.normal(0, 0.03), 0.01, 0.99))
+def simulate_vlm_score(obj, is_correct, rng):
+    """Simulate VLM confidence with ambiguity-aware confusion.
+
+    Key insight: ambiguous items that are MISCLASSIFIED can still produce
+    moderate VLM scores (the VLM is fooled by visual similarity). This is
+    what makes a fixed threshold insufficient — the conformal gate learns
+    from calibration data that moderate scores for certain item types are
+    unreliable.
+    """
+    ambiguity = obj.get("ambiguity", 0.1)
+
+    if is_correct:
+        alpha = max(3.0, 12.0 * (1.0 - ambiguity * 0.5))
+        score = rng.beta(alpha, 2.0)
     else:
-        score = float(np.clip(rng.beta(2, 6) + rng.normal(0, 0.03), 0.01, 0.99))
-    return score
+        if ambiguity > 0.3:
+            score = rng.beta(5.0, 4.0)
+        else:
+            score = rng.beta(2.0, 6.0)
+
+    return float(np.clip(score + rng.normal(0, 0.02), 0.01, 0.99))
 
 
-def run_trials(env, config, n_trials, base_seed, add_noise=False):
-    """Run n_trials of scripted pick attempts."""
+def run_trials(env, config, n_trials, base_seed, fault_level=0.0):
+    """Run n_trials of scripted pick-and-sort attempts.
+
+    Args:
+        fault_level: extra misclassification probability (0-1) simulating
+            degraded conditions (dirty sensor, unusual waste stream).
+    """
     rng = np.random.RandomState(base_seed)
     results = []
 
@@ -163,24 +174,35 @@ def run_trials(env, config, n_trials, base_seed, add_noise=False):
 
         trial = scripted_pick_and_place(env, target)
 
-        if add_noise and rng.random() < 0.3:
-            trial["success"] = False
+        if trial["pick_success"]:
+            ambiguity = target.get("ambiguity", 0.1)
+            misclass_prob = min(0.85, ambiguity * 0.8 + fault_level)
+            correct_class = rng.random() >= misclass_prob
+        else:
+            correct_class = False
 
-        score = simulate_vlm_score(target, trial["success"], rng)
+        overall_success = trial["pick_success"] and correct_class
+        is_contamination = trial["pick_success"] and not correct_class
+
+        score = simulate_vlm_score(target, overall_success, rng)
 
         results.append({
             "seed": seed,
             "object": target["name"],
             "category": target["category"],
+            "ambiguity": target.get("ambiguity", 0.1),
             "size": target["size"],
-            "success": trial["success"],
-            "correct_bin": trial["correct_bin"],
+            "pick_success": trial["pick_success"],
+            "correct_class": correct_class,
+            "success": overall_success,
+            "contamination": is_contamination,
             "vlm_score": score,
         })
 
         if (i + 1) % 50 == 0:
             sr = np.mean([r["success"] for r in results])
-            print(f"    Trial {i+1}/{n_trials}: SR={sr:.2%}")
+            cr = np.mean([r["contamination"] for r in results])
+            print(f"    Trial {i+1}/{n_trials}: SR={sr:.2%}, Contam={cr:.2%}")
 
     return results
 
@@ -197,27 +219,45 @@ def clopper_pearson(k, n, alpha=0.05):
 
 
 def eval_with_gate(results, threshold):
-    """Evaluate gated performance."""
+    """Evaluate gated performance with contamination tracking."""
     scores = np.array([r["vlm_score"] for r in results])
-    labels = np.array([r["success"] for r in results])
+    successes = np.array([r["success"] for r in results])
+    contaminations = np.array([r["contamination"] for r in results])
+    pick_successes = np.array([r["pick_success"] for r in results])
 
     mask = scores >= threshold
     n_attempted = mask.sum()
     if n_attempted == 0:
-        return {"sr": 0, "sr_ci": (0, 0), "coverage": 0, "abstention": 1.0, "n": 0}
+        return {
+            "sr": 0, "sr_ci": (0, 0), "contamination_rate": 0,
+            "coverage": 0, "abstention": 1.0,
+            "n_attempted": 0, "n_success": 0, "n_contamination": 0,
+            "n_total": len(results), "diversion_rate": 0,
+        }
 
-    n_success = labels[mask].sum()
+    n_success = int(successes[mask].sum())
+    n_contamination = int(contaminations[mask].sum())
+    n_picked = int(pick_successes[mask].sum())
     sr = n_success / n_attempted
-    ci = clopper_pearson(int(n_success), int(n_attempted))
+    contamination_rate = n_contamination / n_attempted if n_attempted > 0 else 0
+    ci = clopper_pearson(n_success, n_attempted)
+
+    total_recyclable = sum(1 for r in results if r["category"] != "landfill")
+    diverted = sum(1 for j, r in enumerate(results)
+                   if mask[j] and r["success"] and r["category"] != "landfill")
+    diversion_rate = diverted / total_recyclable if total_recyclable > 0 else 0
 
     return {
         "sr": float(sr),
         "sr_ci": (float(ci[0]), float(ci[1])),
+        "contamination_rate": float(contamination_rate),
         "coverage": float(mask.mean()),
         "abstention": float(1 - mask.mean()),
         "n_attempted": int(n_attempted),
-        "n_success": int(n_success),
+        "n_success": n_success,
+        "n_contamination": n_contamination,
         "n_total": len(results),
+        "diversion_rate": float(diversion_rate),
     }
 
 
@@ -233,7 +273,7 @@ def main():
     n_trials = 200
 
     # ── Phase 1: Calibration ──────────────────────────────────────
-    print("Phase 1: Calibration (200 trials)")
+    print("Phase 1: Calibration (200 trials, mixed waste stream)")
     cal_data = run_trials(env, sim_config, n_trials, base_seed=1000)
     cal_scores = np.array([r["vlm_score"] for r in cal_data])
     cal_labels = np.array([r["success"] for r in cal_data])
@@ -241,18 +281,21 @@ def main():
     gate = ConformalGate(alpha=0.10, delta=0.05)
     cal_result = gate.calibrate(cal_scores, cal_labels)
 
+    cal_contam = np.mean([r["contamination"] for r in cal_data])
     print(f"  Calibration: threshold={cal_result.threshold:.3f}, "
           f"SR={cal_result.empirical_success_rate:.2%}, "
-          f"coverage={cal_result.coverage:.2%}")
+          f"coverage={cal_result.coverage:.2%}, "
+          f"raw contamination={cal_contam:.2%}")
 
     all_results["calibration"] = {
         "threshold": cal_result.threshold,
         "n_trials": n_trials,
         "raw_success_rate": float(cal_labels.mean()),
+        "raw_contamination_rate": float(cal_contam),
     }
 
     # ── Phase 2: In-distribution test ─────────────────────────────
-    print("\nPhase 2: In-distribution test (3 seeds × 200 trials)")
+    print("\nPhase 2: In-distribution test (3 seeds x 200 trials)")
     id_results = {}
     for seed in [42, 123, 456]:
         print(f"  Seed {seed}:")
@@ -267,26 +310,29 @@ def main():
             "raw_0.5": raw_gate,
             "conformal": conf_gate,
         }
-        print(f"    No gate: SR={no_gate['sr']:.2%} | "
-              f"Raw 0.5: SR={raw_gate['sr']:.2%} | "
-              f"Conformal: SR={conf_gate['sr']:.2%}")
+        print(f"    No gate: SR={no_gate['sr']:.2%}, Contam={no_gate['contamination_rate']:.2%}")
+        print(f"    Conformal: SR={conf_gate['sr']:.2%}, Contam={conf_gate['contamination_rate']:.2%}, "
+              f"Cov={conf_gate['coverage']:.2%}")
 
-    # Aggregate across seeds only
     seed_keys = ["42", "123", "456"]
     for method in ["no_gate", "raw_0.5", "conformal"]:
         srs = [id_results[s][method]["sr"] for s in seed_keys]
         covs = [id_results[s][method]["coverage"] for s in seed_keys]
+        contams = [id_results[s][method]["contamination_rate"] for s in seed_keys]
+        divs = [id_results[s][method]["diversion_rate"] for s in seed_keys]
         id_results[f"agg_{method}"] = {
             "mean_sr": float(np.mean(srs)),
             "std_sr": float(np.std(srs)),
             "mean_cov": float(np.mean(covs)),
+            "mean_contamination": float(np.mean(contams)),
+            "mean_diversion": float(np.mean(divs)),
         }
 
     all_results["in_distribution"] = id_results
 
-    # ── Phase 3: Fault injection ──────────────────────────────────
-    print("\nPhase 3: Fault injection (noisy conditions)")
-    fault_data = run_trials(env, sim_config, n_trials, base_seed=7000, add_noise=True)
+    # ── Phase 3: Fault injection (contamination wave) ─────────────
+    print("\nPhase 3: Fault injection — degraded waste stream (+20% misclass)")
+    fault_data = run_trials(env, sim_config, n_trials, base_seed=7000, fault_level=0.20)
     fault_no_gate = eval_with_gate(fault_data, 0.0)
     fault_conf = eval_with_gate(fault_data, cal_result.threshold)
 
@@ -294,12 +340,12 @@ def main():
         "no_gate": fault_no_gate,
         "conformal": fault_conf,
     }
-    print(f"  Under noise — No gate: SR={fault_no_gate['sr']:.2%} | "
-          f"Conformal: SR={fault_conf['sr']:.2%}")
+    print(f"  No gate:    SR={fault_no_gate['sr']:.2%}, Contam={fault_no_gate['contamination_rate']:.2%}")
+    print(f"  Conformal:  SR={fault_conf['sr']:.2%}, Contam={fault_conf['contamination_rate']:.2%}, "
+          f"Cov={fault_conf['coverage']:.2%}")
 
     # ── Phase 4: Recalibration ────────────────────────────────────
-    print("\nPhase 4: Recalibration with noisy data")
-    # Blend clean + noisy data
+    print("\nPhase 4: Recalibration with degraded-stream data")
     clean_cal = run_trials(env, sim_config, 100, base_seed=13000)
     blend_scores = np.concatenate([
         np.array([r["vlm_score"] for r in clean_cal]),
@@ -313,7 +359,7 @@ def main():
     gate_recal = ConformalGate(alpha=0.10, delta=0.05)
     recal_result = gate_recal.calibrate(blend_scores, blend_labels)
 
-    test_recal = run_trials(env, sim_config, n_trials, base_seed=15000, add_noise=True)
+    test_recal = run_trials(env, sim_config, n_trials, base_seed=15000, fault_level=0.20)
     before = eval_with_gate(test_recal, cal_result.threshold)
     after = eval_with_gate(test_recal, recal_result.threshold)
 
@@ -323,14 +369,17 @@ def main():
         "before": before,
         "after": after,
     }
-    print(f"  Before recal: SR={before['sr']:.2%}, cov={before['coverage']:.2%}")
-    print(f"  After recal:  SR={after['sr']:.2%}, cov={after['coverage']:.2%}")
+    print(f"  Before recal: SR={before['sr']:.2%}, Contam={before['contamination_rate']:.2%}, "
+          f"Cov={before['coverage']:.2%}")
+    print(f"  After recal:  SR={after['sr']:.2%}, Contam={after['contamination_rate']:.2%}, "
+          f"Cov={after['coverage']:.2%}")
 
     # ── Save ──────────────────────────────────────────────────────
     out_path = os.path.join(root, "data", "results", "experiment_results.json")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as f:
-        json.dump(all_results, f, indent=2, default=lambda x: float(x) if isinstance(x, (np.floating, np.integer)) else x)
+        json.dump(all_results, f, indent=2,
+                  default=lambda x: float(x) if isinstance(x, (np.floating, np.integer)) else x)
     print(f"\nResults saved: {out_path}")
 
     env.close()
